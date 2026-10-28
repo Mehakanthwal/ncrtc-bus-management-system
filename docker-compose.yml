@@ -1,0 +1,23 @@
+
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: ncrtc-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ncrtc_bms
+      POSTGRES_USER: ncrtc_app
+      POSTGRES_PASSWORD: ncrtc_local_dev_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - ncrtc_db_data:/var/lib/postgresql/data
+      - ./backend/sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ncrtc_app -d ncrtc_bms"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  ncrtc_db_data:

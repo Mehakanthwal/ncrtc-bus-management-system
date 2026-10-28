@@ -1,0 +1,51 @@
+CREATE EXTENSION IF NOT EXISTS postgis;
+CREATE TABLE IF NOT EXISTS users (
+ id SERIAL PRIMARY KEY, name VARCHAR(120) NOT NULL, email VARCHAR(180) UNIQUE NOT NULL,
+ password_hash TEXT NOT NULL, role VARCHAR(30) NOT NULL CHECK (role IN ('admin','driver','conductor','depot_manager','control_operator')),
+ depot VARCHAR(120) DEFAULT 'Delhi NCR Region', active BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS vehicles (
+ id SERIAL PRIMARY KEY, vehicle_code VARCHAR(30) UNIQUE NOT NULL, registration_no VARCHAR(30) UNIQUE NOT NULL,
+ route_id INTEGER, driver_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+ status VARCHAR(30) NOT NULL DEFAULT 'On Route' CHECK (status IN ('On Route','At Stop','Maintenance','Out of Service')),
+ speed_kmh NUMERIC(5,2) NOT NULL DEFAULT 0, latitude DOUBLE PRECISION NOT NULL DEFAULT 28.6139,
+ longitude DOUBLE PRECISION NOT NULL DEFAULT 77.2090, last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS stops (id SERIAL PRIMARY KEY, name VARCHAR(140) NOT NULL, latitude DOUBLE PRECISION NOT NULL, longitude DOUBLE PRECISION NOT NULL, depot VARCHAR(120) DEFAULT 'Delhi NCR Region');
+CREATE TABLE IF NOT EXISTS routes (id SERIAL PRIMARY KEY, route_code VARCHAR(20) UNIQUE NOT NULL, name VARCHAR(180) NOT NULL, origin VARCHAR(140) NOT NULL, destination VARCHAR(140) NOT NULL, distance_km NUMERIC(7,2) DEFAULT 0, active BOOLEAN NOT NULL DEFAULT TRUE);
+ALTER TABLE vehicles DROP CONSTRAINT IF EXISTS vehicles_route_id_fkey;
+ALTER TABLE vehicles ADD CONSTRAINT vehicles_route_id_fkey FOREIGN KEY (route_id) REFERENCES routes(id) ON DELETE SET NULL;
+CREATE TABLE IF NOT EXISTS route_stops (route_id INTEGER REFERENCES routes(id) ON DELETE CASCADE, stop_id INTEGER REFERENCES stops(id) ON DELETE CASCADE, stop_order INTEGER NOT NULL, PRIMARY KEY(route_id, stop_id));
+CREATE TABLE IF NOT EXISTS duties (
+ id SERIAL PRIMARY KEY, duty_code VARCHAR(30) UNIQUE NOT NULL, route_id INTEGER REFERENCES routes(id) ON DELETE SET NULL,
+ vehicle_id INTEGER REFERENCES vehicles(id) ON DELETE SET NULL, driver_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+ duty_date DATE NOT NULL, shift_start TIME NOT NULL, shift_end TIME NOT NULL,
+ status VARCHAR(25) NOT NULL DEFAULT 'Draft' CHECK (status IN ('Draft','Published','Acknowledged','Completed')),
+ created_by INTEGER REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS gps_pings (
+ id BIGSERIAL PRIMARY KEY, vehicle_id INTEGER NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+ location GEOGRAPHY(POINT,4326) NOT NULL, speed_kmh NUMERIC(5,2) DEFAULT 0, recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS gps_pings_vehicle_recorded_idx ON gps_pings(vehicle_id, recorded_at DESC);
+CREATE TABLE IF NOT EXISTS incidents (
+ id SERIAL PRIMARY KEY, incident_code VARCHAR(30) UNIQUE NOT NULL, title VARCHAR(180) NOT NULL,
+ description TEXT NOT NULL, vehicle_id INTEGER REFERENCES vehicles(id) ON DELETE SET NULL,
+ location_text VARCHAR(180) NOT NULL, severity VARCHAR(2) NOT NULL CHECK (severity IN ('P1','P2','P3')),
+ status VARCHAR(25) NOT NULL DEFAULT 'Open' CHECK (status IN ('Open','Acknowledged','In Progress','Resolved','Closed')),
+ reported_by INTEGER REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS incident_events (
+ id SERIAL PRIMARY KEY, incident_id INTEGER NOT NULL REFERENCES incidents(id) ON DELETE CASCADE,
+ actor_id INTEGER REFERENCES users(id) ON DELETE SET NULL, event_type VARCHAR(60) NOT NULL, note TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS notices (
+ id SERIAL PRIMARY KEY, notice_code VARCHAR(30) UNIQUE NOT NULL, title VARCHAR(180) NOT NULL, body TEXT NOT NULL,
+ audience VARCHAR(30) NOT NULL CHECK (audience IN ('All Staff','Drivers','Conductors','Depot Managers','Control Operators')),
+ status VARCHAR(20) NOT NULL DEFAULT 'Draft' CHECK (status IN ('Draft','Published','Archived')),
+ created_by INTEGER REFERENCES users(id) ON DELETE SET NULL, published_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS notice_reads (
+ notice_id INTEGER NOT NULL REFERENCES notices(id) ON DELETE CASCADE, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ read_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY(notice_id,user_id)
+);
