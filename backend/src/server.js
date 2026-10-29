@@ -3,8 +3,24 @@ import { query, pool } from './db.js'; import { authenticate, allowRoles } from 
 const app=express(); const PORT=Number(process.env.PORT||4000);
 app.use(helmet()); app.use(cors({origin:process.env.CLIENT_ORIGIN||'http://localhost:5173'})); app.use(express.json({limit:'1mb'}));
 app.use('/api/auth',rateLimit({windowMs:15*60*1000,max:60,standardHeaders:true,legacyHeaders:false}));
-app.get('/api/health',async(_req,res)=>{try{await query('SELECT 1');res.json({status:'ok',database:'connected',service:'NCRTC BMS API'});}catch{res.status(503).json({status:'error',database:'unavailable'});}});
-app.post('/api/auth/login',async(req,res)=>{try{const {email,password}=req.body||{}; if(!email||!password)return res.status(400).json({error:'Email and password are required'}); const {rows}=await query('SELECT id,name,email,password_hash,role,depot FROM users WHERE LOWER(email)=LOWER($1) AND active=TRUE',[email]); const u=rows[0]; if(!u||!(await bcrypt.compare(password,u.password_hash)))return res.status(401).json({error:'Invalid email or password'}); const token=jwt.sign({id:u.id,name:u.name,email:u.email,role:u.role,depot:u.depot},process.env.JWT_SECRET||'local-dev-only-change-me',{expiresIn:process.env.JWT_EXPIRES_IN||'8h'});res.json({token,user:{id:u.id,name:u.name,email:u.email,role:u.role,depot:u.depot}});}catch(e){console.error(e);res.status(500).json({error:'Login failed'});}});
+app.get('/api/health', async (_req, res) => {
+  try {
+    await query('SELECT 1');
+
+    res.json({
+      status: 'ok',
+      database: 'connected',
+      service: 'NCRTC BMS API'
+    });
+  } catch (error) {
+    console.error('Database health check failed:', error);
+
+    res.status(503).json({
+      status: 'error',
+      database: 'unavailable'
+    });
+  }
+});app.post('/api/auth/login',async(req,res)=>{try{const {email,password}=req.body||{}; if(!email||!password)return res.status(400).json({error:'Email and password are required'}); const {rows}=await query('SELECT id,name,email,password_hash,role,depot FROM users WHERE LOWER(email)=LOWER($1) AND active=TRUE',[email]); const u=rows[0]; if(!u||!(await bcrypt.compare(password,u.password_hash)))return res.status(401).json({error:'Invalid email or password'}); const token=jwt.sign({id:u.id,name:u.name,email:u.email,role:u.role,depot:u.depot},process.env.JWT_SECRET||'local-dev-only-change-me',{expiresIn:process.env.JWT_EXPIRES_IN||'8h'});res.json({token,user:{id:u.id,name:u.name,email:u.email,role:u.role,depot:u.depot}});}catch(e){console.error(e);res.status(500).json({error:'Login failed'});}});
 app.get('/api/auth/me',authenticate,(req,res)=>res.json({user:req.user}));
 app.post('/api/auth/register',authenticate,allowRoles('admin'),async(req,res)=>{try{const {name,email,password,role='driver',depot='Delhi NCR Region'}=req.body||{};if(!name||!email||!password||password.length<8)return res.status(400).json({error:'Name, email and password (8+ characters) are required'});const allowed=['admin','driver','conductor','depot_manager','control_operator'];if(!allowed.includes(role))return res.status(400).json({error:'Invalid role'});const hash=await bcrypt.hash(password,10);const {rows}=await query('INSERT INTO users(name,email,password_hash,role,depot) VALUES($1,$2,$3,$4,$5) RETURNING id,name,email,role,depot',[name,email,hash,role,depot]);res.status(201).json(rows[0]);}catch(e){res.status(e.code==='23505'?409:500).json({error:e.code==='23505'?'Email already exists':'Could not create user'});}});
 app.use('/api',authenticate);
